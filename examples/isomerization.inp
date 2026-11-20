@@ -1,0 +1,8 @@
+# A -> B isomerization example for CHM5210.
+steps 1000
+seed 5210
+output trajectory.csv
+species A 100
+species B 0
+reaction A -> B 0.10
+reaction B -> A 0.05

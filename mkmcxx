@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Small, dependency-free kinetic Monte Carlo driver for the class examples."""
+
+import csv
+import math
+import random
+import sys
+from pathlib import Path
+
+
+def read_input(path):
+    steps = 100
+    seed = None
+    output = "trajectory.csv"
+    counts = {}
+    reactions = []
+    for raw_line in Path(path).read_text().splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        key, *rest = line.split()
+        if key == "steps":
+            steps = int(rest[0])
+        elif key == "seed":
+            seed = int(rest[0])
+        elif key == "output":
+            output = rest[0]
+        elif key == "species":
+            counts[rest[0]] = int(rest[1])
+        elif key == "reaction":
+            source, arrow, product, rate = rest
+            if arrow != "->":
+                raise ValueError(f"invalid reaction: {line}")
+            reactions.append((source, product, float(rate)))
+        else:
+            raise ValueError(f"unknown input keyword: {key}")
+    if not reactions:
+        raise ValueError("at least one reaction is required")
+    for source, product, _ in reactions:
+        counts.setdefault(source, 0)
+        counts.setdefault(product, 0)
+    return steps, seed, output, counts, reactions
+
+
+def simulate(path):
+    steps, seed, output, counts, reactions = read_input(path)
+    random.seed(seed)
+    species = sorted(counts)
+    time = 0.0
+    rows = [{name: counts[name] for name in species} | {"time": time}]
+    for _ in range(steps):
+        events = [
+            (source, product, rate, rate * counts[source])
+            for source, product, rate in reactions
+            if counts[source] > 0 and rate > 0
+        ]
+        total_rate = sum(event[3] for event in events)
+        if total_rate <= 0:
+            break
+        time += -math.log(random.random()) / total_rate
+        pick = random.random() * total_rate
+        for source, product, rate, propensity in events:
+            pick -= propensity
+            if pick <= 0:
+                counts[source] -= 1
+                counts[product] += 1
+                break
+        rows.append({name: counts[name] for name in species} | {"time": time})
+    destination = Path(output)
+    with destination.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=["time", *species])
+        writer.writeheader()
+        writer.writerows(rows)
+    return len(rows) - 1, destination
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: mkmcxx INPUT_FILE")
+    events, output = simulate(sys.argv[1])
+    print(f"completed {events} events; wrote {output}")
